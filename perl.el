@@ -37,12 +37,13 @@
 
 (defun perl-get (context varname)
   (cl-assert (stringp varname))
-  (cl-assert (string-match-p "^[#$@]" varname))
+  (cl-assert (string-match-p "^[%$@]" varname))
   (let ((sigil (string-to-char (substring varname 0 1)))
         (varname (substring varname 1)))
     (cl-case sigil
       (?$ (perl-core-get-sv context varname))
       (?@ (perl-core-get-av context varname))
+      (?% (perl-core-get-hv context varname))
       (otherwise (error "%c type is not support yet" sigil)))))
 
 (provide 'perl)

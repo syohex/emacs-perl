@@ -60,6 +60,11 @@ perl_to_elisp(emacs_env *env, PerlInterpreter *my_perl, SV *v)
 		NV n = SvNV(v);
 		return env->make_float(env, n);
 	}
+	case SVt_PV: {
+		STRLEN len;
+		char *str = SvPV(v, len);
+		return env->make_string(env, str, len);
+	}
 	case SVt_PVAV: {
 		AV *av = (AV*)v;
 		ssize_t len = av_len(av) + 1;
@@ -73,7 +78,32 @@ perl_to_elisp(emacs_env *env, PerlInterpreter *my_perl, SV *v)
 		emacs_value Qlist = env->intern(env, "list");
 		return env->funcall(env, Qlist, len, vals);
 	}
-	case SVt_PV:
+	case SVt_PVHV: {
+		emacs_value Fmake_hash_table = env->intern(env, "make-hash-table");
+		emacs_value Qtest = env->intern(env, ":test");
+		emacs_value Fequal = env->intern(env, "equal");
+		emacs_value make_hash_args[] = {Qtest, Fequal};
+		emacs_value hash = env->funcall(env, Fmake_hash_table, 2, make_hash_args);
+		emacs_value Fputhash = env->intern(env, "puthash");
+
+		HV *hv = (HV*)v;
+		HE *he;
+		hv_iterinit(hv);
+		while((he = hv_iternext(hv)) != NULL){
+			STRLEN len;
+			SV *k = hv_iterkeysv(he);
+			char *kk = SvPV(k, len);
+			SV **v = hv_fetch(hv, kk, len, 0);
+
+			emacs_value key = perl_to_elisp(env, my_perl, k);
+			emacs_value val = perl_to_elisp(env, my_perl, *v);
+
+			emacs_value puthash_args[] = {key, val, hash};
+			env->funcall(env, Fputhash, 3, puthash_args);
+		}
+
+		return hash;
+	}
 	case SVt_PVIV:
 	case SVt_PVNV:
 	case SVt_PVMG:
@@ -81,8 +111,6 @@ perl_to_elisp(emacs_env *env, PerlInterpreter *my_perl, SV *v)
 	case SVt_REGEXP:
 	case SVt_PVGV:
 	case SVt_PVLV:
-
-	case SVt_PVHV:
 	case SVt_PVCV:
 	case SVt_PVFM:
 	case SVt_PVIO:
@@ -178,6 +206,20 @@ Fperl_get_av(emacs_env *env, ptrdiff_t nargs, emacs_value args[], void *data)
 	return perl_to_elisp(env, my_perl, (SV*)v);
 }
 
+static emacs_value
+Fperl_get_hv(emacs_env *env, ptrdiff_t nargs, emacs_value args[], void *data)
+{
+	PerlInterpreter *my_perl = env->get_user_ptr(env, args[0]);
+	ptrdiff_t size;
+	char *varname = retrieve_string(env, args[1], &size);
+	PERL_SET_CONTEXT(my_perl);
+
+	HV *v = get_hv(varname, 0);
+	free(varname);
+
+	return perl_to_elisp(env, my_perl, (SV*)v);
+}
+
 static void
 bind_function(emacs_env *env, const char *name, emacs_value Sfun)
 {
@@ -210,6 +252,7 @@ emacs_module_init(struct emacs_runtime *ert)
 	DEFUN("perl-core-do", Fperl_do, 2, 2, "Do perl code", NULL);
 	DEFUN("perl-core-get-sv", Fperl_get_sv, 2, 2, "Get scalar value", NULL);
 	DEFUN("perl-core-get-av", Fperl_get_av, 2, 2, "Get array value", NULL);
+	DEFUN("perl-core-get-hv", Fperl_get_hv, 2, 2, "Get hash value", NULL);
 
 #undef DEFUN
 
